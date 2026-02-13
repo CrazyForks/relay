@@ -14,6 +14,7 @@ use App\Service\Send\Exception\EmailTooLargeException;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Clock\ClockAwareTrait;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Mime\Address;
 
 class SendService
@@ -22,6 +23,7 @@ class SendService
 
     public function __construct(
         private EntityManagerInterface $em,
+        private EventDispatcherInterface $ed,
         private EmailBuilder $emailBuilder,
         private SendRepository $sendRepository,
         private RecipientFactory $recipientFactory,
@@ -155,7 +157,7 @@ class SendService
 
         $this->em->persist($send);
 
-        $shouldQueue = $this->recipientFactory->create(
+        [$shouldQueue, $events] = $this->recipientFactory->create(
             $send,
             [
                 [SendRecipientType::TO, $to],
@@ -166,6 +168,10 @@ class SendService
         $send->setQueued($shouldQueue);
 
         $this->em->flush();
+
+        foreach ($events as $event) {
+            $this->ed->dispatch($event);
+        }
 
         return $send;
     }
