@@ -4,8 +4,8 @@ namespace App\Command;
 
 use App\Service\App\Config;
 use Doctrine\ORM\EntityManagerInterface;
-use Hyvor\Internal\Auth\AuthMethod;
 use Hyvor\Internal\Auth\Oidc\OidcApiService;
+use Hyvor\Internal\Deployment;
 use Hyvor\Internal\InternalConfig;
 use Hyvor\Internal\Util\Crypt\Encryption;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -37,7 +37,7 @@ class VerifyCommand extends Command
             ['App Version', $this->appConfig->getAppVersion()],
             ['Environment', $this->appConfig->getEnv()],
             ['Component', $this->internalConfig->getComponent()->value],
-            ['Auth Method', $this->internalConfig->getAuthMethod()->value],
+            ['Deployment', $this->internalConfig->getDeployment()->value],
         ]);
         $table->render();
 
@@ -86,7 +86,7 @@ class VerifyCommand extends Command
 
     private function oidcWellKnown(): string
     {
-        if ($this->internalConfig->getAuthMethod() !== AuthMethod::OIDC) {
+        if ($this->internalConfig->getDeployment() !== Deployment::ON_PREM) {
             return 'SKIPPED'; // @codeCoverageIgnore
         }
 
@@ -97,5 +97,4 @@ class VerifyCommand extends Command
             return 'FAILED: ' . $e->getMessage();
         }
     }
-
 }

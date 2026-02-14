@@ -4,6 +4,7 @@ namespace App\Service\ProjectUser;
 
 use App\Entity\Project;
 use App\Entity\ProjectUser;
+use App\Repository\ProjectUserRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Clock\ClockAwareTrait;
 
@@ -13,17 +14,27 @@ class ProjectUserService
     use ClockAwareTrait;
 
     public function __construct(
-        private EntityManagerInterface $em
+		private EntityManagerInterface $em,
     ) {
     }
 
     /**
      * @return ProjectUser[]
      */
-    public function getProjectsOfUser(int $userId): array
+    public function getProjectsOfUserInOrg(int $userId, int $orgId): array
     {
-        return $this->em->getRepository(ProjectUser::class)->findBy(['user_id' => $userId]);
-    }
+        /** @var ProjectUser[] */
+        return $this->em->getRepository(ProjectUser::class)
+            ->createQueryBuilder('pu')
+            ->innerJoin('pu.project', 'p')
+            ->addSelect('p')
+            ->andWhere('pu.user_id = :userId')
+            ->andWhere('p.organization_id = :orgId')
+            ->setParameter('userId', $userId)
+            ->setParameter('orgId', $orgId)
+            ->getQuery()
+            ->getResult();
+	}
 
     /**
      * @return ProjectUser[]
@@ -37,7 +48,7 @@ class ProjectUserService
     {
         return $this->em->getRepository(ProjectUser::class)
             ->findOneBy(['project' => $project, 'user_id' => $userId]);
-    }
+	}
 
     /**
      * @param string[] $scopes
@@ -73,9 +84,15 @@ class ProjectUserService
         $query->execute();
     }
 
-    public function deleteProjectUser(ProjectUser $projectUser): void
+    public function deleteProjectUser(
+        ProjectUser $projectUser,
+        bool $flush = true
+    ): void
     {
         $this->em->remove($projectUser);
-        $this->em->flush();
+
+        if ($flush) {
+            $this->em->flush();
+        }
     }
 }

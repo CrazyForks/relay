@@ -62,9 +62,11 @@ class InstanceService
         ] = Dkim::generateDkimKeys();
 
         $newProject = $this->projectService->createProject(
-            0,
+			0,
+			0,
             'System',
             ProjectSendType::TRANSACTIONAL,
+            isSystemProject: true,
             flush: false
         );
         $systemProject = $newProject['project'];

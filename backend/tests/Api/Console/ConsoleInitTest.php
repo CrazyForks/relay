@@ -11,8 +11,8 @@ use App\Tests\Case\WebTestCase;
 use App\Tests\Factory\ProjectFactory;
 use App\Tests\Factory\ProjectUserFactory;
 use Hyvor\Internal\Auth\AuthFake;
+use Hyvor\Internal\Auth\AuthUserOrganization;
 use Hyvor\Internal\Sudo\SudoUserFactory;
-use Hyvor\Internal\Sudo\SudoUserService;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Symfony\Component\BrowserKit\Cookie;
 
@@ -23,17 +23,45 @@ use Symfony\Component\BrowserKit\Cookie;
 #[CoversClass(Compliance::class)]
 class ConsoleInitTest extends WebTestCase
 {
+    protected function shouldEnableAuthFake(): bool
+    {
+        return false;
+    }
+
     public function test_init_console(): void
     {
+        AuthFake::enableForSymfony(
+            $this->container,
+            ['id' => 1],
+            new AuthUserOrganization(
+                id: 1,
+                name: 'Fake Organization',
+                role: 'admin'
+            )
+        );
+
         $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
-        SudoUserFactory::createOne(['user_id' => 1]);
+		SudoUserFactory::createOne(['user_id' => 1]);
 
         ProjectUserFactory::createMany(5, [
-            'user_id' => 1,
+			'user_id' => 1,
+			'project' => ProjectFactory::new([
+				'organization_id' => 1
+			])
         ]);
 
         ProjectUserFactory::createMany(2, [
-            'user_id' => 2,
+			'user_id' => 2,
+			'project' => ProjectFactory::new([
+				'organization_id' => 1
+			])
+        ]);
+
+        ProjectUserFactory::createMany(2, [
+            'user_id' => 1,
+            'project' => ProjectFactory::new([
+                'organization_id' => 2
+            ])
         ]);
 
         $this->client->request(
@@ -47,6 +75,27 @@ class ConsoleInitTest extends WebTestCase
         $this->assertArrayHasKey('project_users', $json);
         $this->assertArrayHasKey('config', $json);
         $this->assertIsArray($json['project_users']);
-        $this->assertCount(5, $json['project_users']);
+        $this->assertCount(5, $json['project_users']); // system project not selected, because it has org ID 0
+    }
+
+    public function test_init_console_without_org(): void
+    {
+        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+
+        $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
+        SudoUserFactory::createOne(['user_id' => 1]);
+
+        $this->client->request(
+            "GET",
+            "/api/console/init",
+        );
+
+        $this->assertResponseStatusCodeSame(200);
+
+        $json = $this->getJson();
+        $this->assertArrayHasKey('project_users', $json);
+        $this->assertArrayHasKey('config', $json);
+        $this->assertIsArray($json['project_users']);
+        $this->assertCount(0, $json['project_users']);
     }
 }

@@ -13,6 +13,7 @@ use App\Tests\Factory\ProjectFactory;
 use App\Tests\Factory\ProjectUserFactory;
 use Hyvor\Internal\Auth\AuthFake;
 use Hyvor\Internal\Auth\AuthUser;
+use Hyvor\Internal\Auth\AuthUserOrganization;
 use Hyvor\Internal\Sudo\SudoUserFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Symfony\Component\BrowserKit\Cookie;
@@ -88,13 +89,23 @@ class AuthorizationTest extends WebTestCase
 
     public function test_invalid_project_id(): void
     {
-        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+		AuthFake::enableForSymfony(
+			$this->container,
+			['id' => 1],
+			new AuthUserOrganization(
+				id: 1,
+				name: 'Fake Organization',
+				role: 'member'
+			)
+		);
+
         $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
         $this->client->request(
             "GET",
             "/api/console/sends",
             server: [
                 "HTTP_X_PROJECT_ID" => "999",
+                "HTTP_X_ORGANIZATION_ID" => "1",
             ],
         );
         $this->assertResponseStatusCodeSame(403);
@@ -103,7 +114,7 @@ class AuthorizationTest extends WebTestCase
 
     public function test_invalid_session(): void
     {
-        AuthFake::enableForSymfony($this->container, null);
+        AuthFake::enableForSymfony($this->container, null, null);
 
         $project = ProjectFactory::createOne();
 
@@ -119,22 +130,109 @@ class AuthorizationTest extends WebTestCase
         $this->assertSame("Unauthorized", $this->getJson()["message"]);
     }
 
-    public function test_fails_when_xprojectid_header_is_not_set(): void
+    public function test_fails_when_org_is_null(): void
     {
         AuthFake::enableForSymfony($this->container, ['id' => 1]);
 
         $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
         $this->client->request(
             "GET",
+            "/api/console/sends"
+        );
+        $this->assertResponseStatusCodeSame(403);
+        $this->assertSame("Organization is required", $this->getJson()["message"]);
+    }
+
+    public function test_fails_when_org_mismatch(): void
+    {
+        AuthFake::enableForSymfony(
+            $this->container,
+            ['id' => 1],
+            new AuthUserOrganization(
+                id: 1,
+                name: 'Fake Organization',
+                role: 'member'
+            )
+        );
+
+        $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
+        $this->client->request(
+            "GET",
             "/api/console/sends",
+            server: [
+                "HTTP_X_ORGANIZATION_ID" => "2",
+            ],
+        );
+        $this->assertResponseStatusCodeSame(403);
+        $this->assertSame("org_mismatch", $this->getJson()["message"]);
+    }
+
+    public function test_fails_when_xprojectid_header_is_not_set(): void
+    {
+		AuthFake::enableForSymfony(
+			$this->container,
+			['id' => 1],
+			new AuthUserOrganization(
+				id: 1,
+				name: 'Fake Organization',
+				role: 'member'
+			)
+		);
+
+        $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
+        $this->client->request(
+            "GET",
+            "/api/console/sends",
+            server: [
+                "HTTP_X_ORGANIZATION_ID" => "1",
+            ],
         );
         $this->assertResponseStatusCodeSame(403);
         $this->assertSame("X-Project-ID is required for this endpoint.", $this->getJson()["message"]);
     }
 
+    public function test_user_has_no_access_to_org(): void
+    {
+        AuthFake::enableForSymfony(
+            $this->container,
+            ['id' => 1],
+            new AuthUserOrganization(
+                id: 1,
+                name: 'Fake Organization',
+                role: 'member'
+            )
+        );
+
+        $project = ProjectFactory::createOne([
+            'organization_id' => 999,
+        ]);
+        $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
+        $this->client->request(
+            "GET",
+            "/api/console/sends",
+            server: [
+                "HTTP_X_PROJECT_ID" => $project->getId(),
+                "HTTP_X_ORGANIZATION_ID" => "1",
+            ]
+        );
+        $this->assertResponseStatusCodeSame(403);
+        $this->assertSame(
+            "This project does not belong to your current organization.",
+            $this->getJson()["message"]
+        );
+    }
+
     public function test_user_not_authorized_for_project(): void
     {
-        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+		AuthFake::enableForSymfony(
+			$this->container,
+			['id' => 1],
+			new AuthUserOrganization(
+				id: 1,
+				name: 'Fake Organization',
+				role: 'member'
+			)
+		);
 
         $project = ProjectFactory::createOne();
         $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
@@ -143,6 +241,7 @@ class AuthorizationTest extends WebTestCase
             "/api/console/sends",
             server: [
                 "HTTP_X_PROJECT_ID" => $project->getId(),
+                "HTTP_X_ORGANIZATION_ID" => "1",
             ]
         );
         $this->assertResponseStatusCodeSame(403);
@@ -154,7 +253,15 @@ class AuthorizationTest extends WebTestCase
 
     public function test_verifies_scopes_for_user(): void
     {
-        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+		AuthFake::enableForSymfony(
+			$this->container,
+			['id' => 1],
+			new AuthUserOrganization(
+				id: 1,
+				name: 'Fake Organization',
+				role: 'member'
+			)
+		);
 
         $project = ProjectFactory::createOne();
         ProjectUserFactory::createOne([
@@ -169,6 +276,7 @@ class AuthorizationTest extends WebTestCase
             "/api/console/sends",
             server: [
                 "HTTP_X_PROJECT_ID" => $project->getId(),
+                "HTTP_X_ORGANIZATION_ID" => "1",
             ]
         );
         $this->assertResponseStatusCodeSame(403);
@@ -225,7 +333,15 @@ class AuthorizationTest extends WebTestCase
 
     public function test_authorizes_via_session(): void
     {
-        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+		AuthFake::enableForSymfony(
+			$this->container,
+			['id' => 1],
+			new AuthUserOrganization(
+				id: 1,
+				name: 'Fake Organization',
+				role: 'member'
+			)
+		);
 
         $project = ProjectFactory::createOne();
         ProjectUserFactory::createOne([
@@ -239,6 +355,7 @@ class AuthorizationTest extends WebTestCase
             "/api/console/sends",
             server: [
                 "HTTP_X_PROJECT_ID" => $project->getId(),
+                "HTTP_X_ORGANIZATION_ID" => "1",
             ]
         );
         $this->assertResponseStatusCodeSame(200);
@@ -255,9 +372,41 @@ class AuthorizationTest extends WebTestCase
         $this->assertSame(1, $userFromAttr->id);
     }
 
-    public function test_user_level_endpoint_works(): void
+    public function test_org_level_endpoint_works_with_org(): void
     {
-        AuthFake::enableForSymfony($this->container, ['id' => 1]);
+        AuthFake::enableForSymfony(
+            $this->container,
+            ['id' => 1],
+            new AuthUserOrganization(
+                id: 1,
+                name: 'Fake Organization',
+                role: 'member'
+            )
+        );
+
+        SudoUserFactory::createOne(['user_id' => 1]);
+
+        $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
+
+        $this->client->request(
+            "POST",
+            "/api/console/project",
+            [
+                'name' => 'Valid Project Name',
+                'send_type' => 'transactional',
+            ],
+            server: [
+                'HTTP_X_ORGANIZATION_ID' => '1',
+            ]
+        );
+
+        $this->assertResponseStatusCodeSame(200);
+    }
+
+    public function test_org_level_endpoint_works_without_org(): void
+    {
+		AuthFake::enableForSymfony($this->container, ['id' => 1]);
+
         SudoUserFactory::createOne(['user_id' => 1]);
 
         $this->client->getCookieJar()->set(new Cookie('authsess', 'validSession'));
